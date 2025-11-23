@@ -12,7 +12,7 @@ import pytest  # type: ignore[import-not-found]
 from async_yield_from import async_yield_from
 
 from asttab import ASTParser, back, there  # type: ignore[import-not-found]
-from main import main as cli_main  # type: ignore[import-not-found]
+from asttab.main import main as cli_main  # type: ignore[import-not-found]
 
 
 def _build_roundtrip_ast() -> tuple[str, ast.AST, ast.AST]:
