@@ -1,4 +1,4 @@
-"""Pytest coverage for ASTParser round-tripping async_yield_from."""
+"""Pytest coverage for DumpParser round-tripping async_yield_from."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _build_roundtrip_ast() -> tuple[str, ast.AST, ast.AST]:
     dump_text = ast.dump(original_ast, indent=4)
 
     parser = ASTParser(dump_text)
-    builder_code = parser.parse_value()
+    builder_code = parser.parse()
 
     namespace: dict[str, object] = {"ast": ast}
     rebuilt_ast = eval(builder_code, namespace)
@@ -97,6 +97,17 @@ def test_cli_parse_emits_builder(tmp_path: Path, capsys: Any) -> None:
     assert "node =" in out
 
 
+def test_cli_parse_pretty(tmp_path: Path, capsys: Any) -> None:
+    snippet = "x = {'a': 1, 'b': 2}"
+    dump_text = ast.dump(ast.parse(snippet), indent=4)
+    dump_path = tmp_path / "dump_pretty.txt"
+    dump_path.write_text(dump_text, encoding="utf-8")
+
+    cli_main(["parse", "--pretty", str(dump_path)])
+    out = capsys.readouterr().out
+    assert "node =" in out and "ast.Dict" in out
+
+
 def test_cli_there_reads_file(tmp_path: Path, capsys: Any) -> None:
     source_path = tmp_path / "snippet.py"
     source_path.write_text("value = 42", encoding="utf-8")
@@ -122,7 +133,7 @@ def test_ast_parser_handles_varied_snippets(snippet: str) -> None:
     dump_text = ast.dump(ast.parse(normalized), indent=4)
 
     parser = ASTParser(dump_text)
-    builder_code = parser.parse_value()
+    builder_code = parser.parse()
 
     namespace: dict[str, Any] = {"ast": ast}
     rebuilt_ast = eval(builder_code, namespace)
@@ -144,3 +155,22 @@ def test_back_returns_callable() -> None:
 
     assert inspect.isasyncgenfunction(func)
 
+
+def test_ast_parser_pretty_flag_changes_format() -> None:
+    snippet = "result = [value for value in range(3)]"
+    dump_text = ast.dump(ast.parse(snippet), indent=4)
+    raw_parser = ASTParser(dump_text)
+    raw = raw_parser.parse()
+    pretty_parser = ASTParser(dump_text)
+    pretty = pretty_parser.parse(pretty=True)
+
+    assert raw.strip() != ""
+    assert pretty.strip() != ""
+
+    namespace: dict[str, object] = {"ast": ast}
+    rebuilt_raw = eval(raw, namespace)
+    rebuilt_pretty = eval(pretty, namespace)
+
+    assert ast.dump(rebuilt_raw, include_attributes=False) == ast.dump(
+        rebuilt_pretty, include_attributes=False
+    )

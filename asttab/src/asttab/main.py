@@ -186,6 +186,22 @@ class ASTParser:
 
         raise ValueError(f"Unknown atom: {atom!r}")
 
+    def parse(self, *, pretty: bool = False) -> str:
+        """Return code that rebuilds the AST; optionally pretty-print it."""
+
+        builder_code = self.parse_value()
+        if not pretty:
+            return builder_code
+        try:
+            expr = ast.parse(builder_code, mode="eval")
+        except SyntaxError:
+            return builder_code
+        formatter = _ExprFormatter(self.indent)
+        try:
+            return formatter.format(expr.body)
+        except Exception:  # pragma: no cover - formatting edge
+            return builder_code
+
 
 def there(target: str | Callable[..., Any], *, indent: int = 4) -> str:
     """Return ast.dump output for a source string or callable."""
@@ -252,6 +268,73 @@ def back(
     return func
 
 
+class _ExprFormatter:
+    """Pretty-printer for limited Python expressions produced by ASTParser."""
+
+    def __init__(self, indent: str):
+        self.indent = indent
+
+    def format(self, node: ast.AST, level: int = 0) -> str:
+        method = getattr(self, f"_format_{type(node).__name__}", None)
+        if method is None:
+            raise TypeError(f"Unsupported expression node: {type(node).__name__}")
+        return method(node, level)
+
+    def _newline_join(self, parts: list[str], level: int) -> str:
+        inner = self.indent * (level + 1)
+        outer = self.indent * level
+        return f"\n{inner}" + f",\n{inner}".join(parts) + f",\n{outer}"
+
+    def _format_Name(self, node: ast.Name, level: int) -> str:  # noqa: ARG002
+        return node.id
+
+    def _format_Attribute(self, node: ast.Attribute, level: int) -> str:
+        return f"{self.format(node.value, level)}.{node.attr}"
+
+    def _format_Constant(self, node: ast.Constant, level: int) -> str:  # noqa: ARG002
+        return repr(node.value)
+
+    def _format_List(self, node: ast.List, level: int) -> str:
+        if not node.elts:
+            return "[]"
+        parts = [self.format(elt, level + 1) for elt in node.elts]
+        return "[" + self._newline_join(parts, level) + "]"
+
+    def _format_Tuple(self, node: ast.Tuple, level: int) -> str:
+        if not node.elts:
+            return "()"
+        parts = [self.format(elt, level + 1) for elt in node.elts]
+        body = self._newline_join(parts, level)
+        return "(" + body + ")"
+
+    def _format_Dict(self, node: ast.Dict, level: int) -> str:
+        if not node.keys:
+            return "{}"
+        items: list[str] = []
+        for key, value in zip(node.keys, node.values, strict=False):
+            if key is None:
+                key_str = "None"
+            else:
+                key_str = self.format(key, level + 1)
+            value_str = self.format(value, level + 1)
+            items.append(f"{key_str}: {value_str}")
+        return "{" + self._newline_join(items, level) + "}"
+
+    def _format_Call(self, node: ast.Call, level: int) -> str:
+        func_str = self.format(node.func, level)
+        parts: list[str] = [self.format(arg, level + 1) for arg in node.args]
+        for kw in node.keywords:
+            arg = kw.arg
+            value = self.format(kw.value, level + 1)
+            if arg is None:
+                parts.append(f"**{value}")
+            else:
+                parts.append(f"{arg}={value}")
+        if not parts:
+            return f"{func_str}()"
+        return f"{func_str}(" + self._newline_join(parts, level) + ")"
+
+
 def _emit_builder_script(builder_code: str) -> None:
     print("import ast")
     print()
@@ -263,7 +346,7 @@ def _emit_builder_script(builder_code: str) -> None:
 def _cmd_parse(args: argparse.Namespace) -> None:
     dump_text = Path(args.dump_file).read_text(encoding="utf-8")
     parser = ASTParser(dump_text)
-    builder_code = parser.parse_value()
+    builder_code = parser.parse(pretty=args.pretty)
     _emit_builder_script(builder_code)
 
 
@@ -303,6 +386,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "dump_file",
         type=Path,
         help="Path to file containing ast.dump output",
+    )
+    parse_cmd.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Use ast.unparse to pretty-print the builder expression",
     )
     parse_cmd.set_defaults(handler=_cmd_parse)
 
