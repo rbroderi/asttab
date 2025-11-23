@@ -1,4 +1,4 @@
-"""Pytest coverage for DumpParser round-tripping async_yield_from."""
+"""Pytest coverage for ASTParser round-tripping async_yield_from."""
 
 from __future__ import annotations
 
@@ -143,3 +143,4 @@ def test_back_returns_callable() -> None:
     func = back(builder_code, return_callable=True)
 
     assert inspect.isasyncgenfunction(func)
+
